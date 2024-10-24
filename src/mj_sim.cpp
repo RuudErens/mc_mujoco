@@ -595,6 +595,27 @@ void MjSimImpl::makeDatastoreCalls()
                    d = r.kd[rjo_idx];
                    return true;
                  });
+
+    // make_call to set applied external force to a body of a robot (by name)
+    ds.make_call(
+        r.name + "::ApplyForcesOnBody",
+        [this, &r](const std::string & bodyname, const sva::ForceVecd & wrench, const Eigen::Vector3d localpose)
+        {
+          auto & robot = controller->robots().robot(r.name);
+          if(robot.hasBody(bodyname))
+          {
+            auto mjr_body_idx = mj_name2id(model, mjOBJ_BODY, (r.prefixed(bodyname)).c_str());
+            mj_applyFT(model, data, wrench.force().data(), wrench.couple().data(), localpose.data(), mjr_body_idx,
+                       data->qfrc_applied);
+            return true;
+          }
+          else
+          {
+            mc_rtc::log::warning("[mc_mujoco] {}::ApplyForcesOnBody failed. Robot does not have any body called {}",
+                                 r.name, bodyname);
+            return false;
+          }
+        });
   }
 }
 
@@ -630,7 +651,7 @@ void MjSimImpl::startSimulation()
   setSimulationInitialState();
 }
 
-void MjRobot::updateSensors(mc_control::MCGlobalController * gc, mjModel * model, mjData * data)
+void MjRobot::updateSensors(mc_control::MCGlobalController * gc, mjModel * model, mjData * data, bool disturbance)
 {
   for(size_t i = 0; i < mj_jnt_ids.size(); ++i)
   {
@@ -705,16 +726,18 @@ void MjRobot::updateSensors(mc_control::MCGlobalController * gc, mjModel * model
   gc->setWrenches(name, wrenches);
 
   // Joint sensor updates
+  auto fakeTorques = torques;
+  if(name.compare("kinova") == 0 and disturbance) fakeTorques[5] = fakeTorques[5] - 5.0;
   gc->setEncoderValues(name, encoders);
   gc->setEncoderVelocities(name, alphas);
-  gc->setJointTorques(name, torques);
+  gc->setJointTorques(name, fakeTorques);
 }
 
-void MjSimImpl::updateData()
+void MjSimImpl::updateData(bool disturbance)
 {
   for(auto & r : robots)
   {
-    r.updateSensors(controller.get(), model, data);
+    r.updateSensors(controller.get(), model, data, disturbance);
   }
 }
 
@@ -741,7 +764,8 @@ void MjRobot::sendControl(const mjModel & model,
                           mjData & data,
                           size_t interp_idx,
                           size_t frameskip_,
-                          bool torque_control)
+                          bool torque_control,
+                          bool disturbance)
 {
   for(size_t i = 0; i < mj_ctrl.size(); ++i)
   {
@@ -764,9 +788,9 @@ void MjRobot::sendControl(const mjModel & model,
     torque_ref += mj_prev_ctrl_jointTorque[i];
     if(mot_id != -1)
     {
-      if(torque_control && torque_ref != 0)
+      if(torque_control)
       {
-        mj_ctrl[i] = torque_ref;
+        mj_ctrl[i] = torque_ref + ((i == 5 and disturbance) ? 5.0 : 0);
       }
       else
       {
@@ -802,10 +826,15 @@ bool MjSimImpl::controlStep()
       r.updateControl(controller->robots().robot(r.name));
     }
   }
+
+  auto use_torque = config.torque_control;
+  if(controller->controller().datastore().has("ControlMode"))
+    use_torque = controller->controller().datastore().get<std::string>("ControlMode").compare("Torque") == 0;
+
   // On each control iter
   for(auto & r : robots)
   {
-    r.sendControl(*model, *data, interp_idx, frameskip_, config.torque_control);
+    r.sendControl(*model, *data, interp_idx, frameskip_, use_torque, config.with_disturbance);
   }
   iterCount_++;
   return false;
@@ -821,6 +850,7 @@ void MjSimImpl::simStep()
   // take one step in simulation
   // model.opt.timestep will be used here
   mj_step(model, data);
+  mju_zero(data->qfrc_applied, model->nv);
 
   wallclock = data->time;
 }
@@ -882,7 +912,7 @@ bool MjSimImpl::stepSimulation()
       std::lock_guard<std::mutex> lock(rendering_mutex_);
       simStep();
     }
-    updateData();
+    updateData(this->config.with_disturbance);
     return controlStep();
   };
   bool done = false;
@@ -1010,6 +1040,7 @@ bool MjSimImpl::render()
       doNStepsButton(50, false);
       doNStepsButton(100, true);
     }
+    ImGui::Checkbox("Disturbance active", &config.with_disturbance);
     auto flag_to_gui = [&](const char * label, mjtVisFlag flag)
     {
       bool show = options.flags[flag];
