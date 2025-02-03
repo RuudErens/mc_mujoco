@@ -46,6 +46,7 @@ set(mc_mujoco_lib_SRC
     widgets/MujocoWidget.h
     widgets/Point3D.h
     widgets/Polygon.h
+    widgets/Polyhedron.h
     widgets/Rotation.h
     widgets/Trajectory.h
     widgets/Transform.h
@@ -149,6 +150,7 @@ endif()
 find_package(Boost REQUIRED COMPONENTS program_options)
 
 add_executable(mc_mujoco main.cpp)
+target_compile_definitions(mc_mujoco PUBLIC MUJOCO_BIN_DIR="${MUJOCO_BIN_DIR}")
 target_link_libraries(mc_mujoco PRIVATE mc_mujoco_lib Boost::program_options
                                         Boost::disable_autolinking)
 
