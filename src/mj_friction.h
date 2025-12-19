@@ -26,7 +26,7 @@ struct JointValSet
   double p_prev;
   double lambArg_th = -0.001;
 
-  double dt = 0.001;
+  double dt = 0.002;
 
   double Z = 1 / (Kf * dt + Bf);
   double den = 1 + Z * Tv;
