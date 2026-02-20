@@ -773,8 +773,8 @@ void MjRobot::updateControl(const mc_rbdyn::Robot & robot)
 
       frictionSet[i].torqueForce = robot.mbc().jointTorque[jIndex][0];
 
-      // mj_next_ctrl_jointTorque[ctrl_idx] = setFrictionForces(frictionSet[i]);
-      mj_next_ctrl_jointTorque[ctrl_idx] = robot.mbc().jointTorque[jIndex][0];
+      mj_next_ctrl_jointTorque[ctrl_idx] = setFrictionForces(frictionSet[i]);
+      // mj_next_ctrl_jointTorque[ctrl_idx] = robot.mbc().jointTorque[jIndex][0];
 
       ctrl_idx++;
     }
@@ -819,8 +819,8 @@ void MjRobot::sendControl(const mjModel & model,
         frictionSet[i].velocity = alpha_ref;
         frictionSet[i].value = q_ref;
 
-        // mj_ctrl[i] = setFrictionForces(frictionSet[i]);
-        mj_ctrl[i] = PD(rjo_id, q_ref, encoders[rjo_id], alpha_ref, alphas[rjo_id]);
+        mj_ctrl[i] = setFrictionForces(frictionSet[i]);
+        // mj_ctrl[i] = PD(rjo_id, q_ref, encoders[rjo_id], alpha_ref, alphas[rjo_id]);
       }
       double ratio = model.actuator_gear[6 * mot_id];
       data.ctrl[mot_id] = mj_ctrl[i] / ratio;
